@@ -1,0 +1,24 @@
+[project]
+name = "ghbackup"
+version = "1.0.0"
+description = "Back up your GitHub repositories to Azure Blob Storage, passwordless (GitHub OIDC)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["azure-identity>=1.17", "azure-storage-blob>=12.20", "PyJWT[crypto]>=2.8", "requests>=2.31"]
+
+[project.scripts]
+ghbackup = "ghbackup.__main__:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ghbackup"]
+
+[tool.ruff]
+line-length = 130
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I"]

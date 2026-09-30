@@ -1,0 +1,4 @@
+azure-identity>=1.17
+azure-storage-blob>=12.20
+PyJWT[crypto]>=2.8
+requests>=2.31

@@ -1,0 +1,47 @@
+name: Nightly backup to Azure
+
+on:
+  schedule:
+    - cron: "17 9 * * *" # 09:17 UTC daily; change to taste (off the hour starts faster)
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Force a complete copy of every repo"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # lets the job sign in to Azure with OIDC — no Azure secret stored
+
+concurrency:
+  group: ghbackup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    # skip until configured (e.g. in the public template repo itself)
+    if: vars.GHB_STORAGE_ACCOUNT != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Back up all repositories
+        env:
+          # Azure (not secrets — IDs only; the trust is the federated credential)
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          GHB_STORAGE_ACCOUNT: ${{ vars.GHB_STORAGE_ACCOUNT }}
+          GHB_AFFILIATION: ${{ vars.GHB_AFFILIATION || 'owner' }}
+          GHB_EXCLUDE: ${{ vars.GHB_EXCLUDE }}
+          # GitHub: ONE of these (the default GITHUB_TOKEN can only see this repo)
+          GH_BACKUP_TOKEN: ${{ secrets.GH_BACKUP_TOKEN }}
+          GH_APP_ID: ${{ vars.GH_APP_ID }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GHB_OWNER: ${{ github.repository_owner }}
+        run: python -m ghbackup backup ${{ inputs.full && '--full' || '' }}

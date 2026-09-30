@@ -1,0 +1,72 @@
+name: Restore repositories
+
+# Easiest restore is from your laptop (az login + gh auth login, see README).
+# This workflow is for when you are away from it. It needs a GH_RESTORE_TOKEN secret:
+# a fine-grained PAT with Administration + Contents (+ Issues) read/write.
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Repo(s) to restore: name, owner/name, several separated by commas, or 'all'"
+        required: true
+      at:
+        description: "Restore point yyyy/mm/dd (blank = latest)"
+        required: false
+      as_name:
+        description: "Restore under a new name (single repo only; blank = original name)"
+        required: false
+      to:
+        description: "Restore into another owner/org (blank = original owner)"
+        required: false
+      with_issues:
+        description: "Recreate issues and comments"
+        type: boolean
+        default: false
+      into_existing:
+        description: "Push into repos that already exist and aren't empty (otherwise they are skipped)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Restore
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          GHB_STORAGE_ACCOUNT: ${{ vars.GHB_STORAGE_ACCOUNT }}
+          GH_RESTORE_TOKEN: ${{ secrets.GH_RESTORE_TOKEN }}
+          REPO: ${{ inputs.repo }}
+          AT: ${{ inputs.at }}
+          AS_NAME: ${{ inputs.as_name }}
+          TO: ${{ inputs.to }}
+          WITH_ISSUES: ${{ inputs.with_issues }}
+          INTO_EXISTING: ${{ inputs.into_existing }}
+        run: |
+          if [ -z "$GH_RESTORE_TOKEN" ]; then
+            echo "::error::Add a GH_RESTORE_TOKEN secret first (fine-grained PAT: Administration, Contents, Issues read/write)"
+            exit 1
+          fi
+          if [ "$(echo "$REPO" | tr -d ' ' | tr 'A-Z' 'a-z')" = "all" ]; then
+            args=(--all)
+          else
+            IFS=', ' read -ra args <<< "$REPO"
+          fi
+          [ -n "$AT" ] && args+=(--at "$AT")
+          [ -n "$AS_NAME" ] && args+=(--as "$AS_NAME")
+          [ -n "$TO" ] && args+=(--to "$TO")
+          [ "$WITH_ISSUES" = "true" ] && args+=(--with-issues)
+          [ "$INTO_EXISTING" = "true" ] && args+=(--into-existing)
+          python -m ghbackup restore "${args[@]}"

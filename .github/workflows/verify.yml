@@ -1,0 +1,29 @@
+name: Monthly restore test
+
+on:
+  schedule:
+    - cron: "43 10 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    # skip until configured (e.g. in the public template repo itself)
+    if: vars.GHB_STORAGE_ACCOUNT != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Download, checksum, clone and fsck a sample of backups
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          GHB_STORAGE_ACCOUNT: ${{ vars.GHB_STORAGE_ACCOUNT }}
+        run: python -m ghbackup verify --sample 10
