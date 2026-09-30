@@ -8,6 +8,7 @@
 # Usage:   ./scripts/setup-azure.sh -r <owner>/<backup-repo> [-g rg] [-l region] [-a account]
 #                                   [-s sku] [-d retention_days] [-k keep_days] [-b branch] [--lock]
 set -euo pipefail
+export MSYS_NO_PATHCONV=1   # Git Bash on Windows would rewrite /subscriptions/... scopes into C:/Program Files/Git/...
 
 RG="rg-github-backup"
 LOCATION="westus3"
@@ -91,12 +92,25 @@ az identity federated-credential create --name "$FIC_NAME" --identity-name "$IDE
   --issuer https://token.actions.githubusercontent.com \
   --subject "repo:${REPO}:ref:refs/heads/${BRANCH}" \
   --audiences api://AzureADTokenExchange -o none
+# GitHub may instead send the ID-based subject repo:owner@<id>/repo@<id>:..., which survives renames.
+IDS=$(gh api "repos/$REPO" --jq '"\(.owner.id) \(.id)"' 2>/dev/null || true)
+if [[ -n "$IDS" ]]; then
+  read -r OWNER_ID REPO_ID <<< "$IDS"
+  az identity federated-credential create --name "${FIC_NAME:0:96}-ids" --identity-name "$IDENTITY" -g "$RG" \
+    --issuer https://token.actions.githubusercontent.com \
+    --subject "repo:${REPO%%/*}@${OWNER_ID}/${REPO#*/}@${REPO_ID}:ref:refs/heads/${BRANCH}" \
+    --audiences api://AzureADTokenExchange -o none
+else
+  echo "  ! couldn't look up the repo's numeric IDs (install/log in to gh). If the workflow's Azure login fails"
+  echo "    with AADSTS700213, add a federated credential for the subject shown in that error."
+fi
 
 SCOPE=$(az storage account show -n "$ACCOUNT" -g "$RG" --query id -o tsv)
 echo "→ role: Storage Blob Data Contributor for the identity"
-for i in 1 2 3 4 5 6; do   # a new identity can take a minute to replicate
-  if az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal \
-       --role "Storage Blob Data Contributor" --scope "$SCOPE" -o none 2>/dev/null; then break; fi
+for i in 1 2 3 4 5 6 7; do   # a new identity can take a minute to replicate
+  if err=$(az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal \
+       --role "Storage Blob Data Contributor" --scope "$SCOPE" -o none 2>&1); then break; fi
+  (( i < 7 )) || { echo "error: could not assign the role to the identity: $err"; exit 1; }
   echo "  waiting for identity to replicate ($i)…"; sleep 15
 done
 
@@ -104,7 +118,8 @@ ME=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)
 if [[ -n "$ME" ]]; then
   echo "→ role: Storage Blob Data Contributor for you (to list/restore from your machine)"
   az role assignment create --assignee-object-id "$ME" --assignee-principal-type User \
-    --role "Storage Blob Data Contributor" --scope "$SCOPE" -o none || true
+    --role "Storage Blob Data Contributor" --scope "$SCOPE" -o none ||
+    echo "  ! couldn't give you blob access; the portal and 'ghbackup list' will say you lack permissions"
 fi
 
 if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then

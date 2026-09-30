@@ -1,7 +1,8 @@
 // Same result as scripts/setup-azure.sh, as Bicep:
 //   az group create -n rg-github-backup -l westus3
 //   az deployment group create -g rg-github-backup -f infra/main.bicep \
-//     -p githubRepo=<owner>/<repo> userObjectId=$(az ad signed-in-user show --query id -o tsv)
+//     -p githubRepo=<owner>/<repo> userObjectId=$(az ad signed-in-user show --query id -o tsv) \
+//        githubOwnerId=<id> githubRepoId=<id>
 param location string = resourceGroup().location
 param storageAccountName string = 'ghbackup${uniqueString(resourceGroup().id)}'
 
@@ -20,6 +21,10 @@ param keepDays int = 365
 
 @description('Your Entra object ID, to list/restore from your machine (optional)')
 param userObjectId string = ''
+
+@description('Numeric owner and repo IDs (gh api repos/<owner>/<repo> --jq "\\(.owner.id) \\(.id)"), for GitHub\'s ID-based OIDC subject (optional)')
+param githubOwnerId string = ''
+param githubRepoId string = ''
 
 var blobContributor = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
 
@@ -103,6 +108,17 @@ resource fic 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentity
   properties: {
     issuer: 'https://token.actions.githubusercontent.com'
     subject: 'repo:${githubRepo}:ref:refs/heads/${githubBranch}'
+    audiences: ['api://AzureADTokenExchange']
+  }
+}
+
+resource ficIds 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = if (!empty(githubOwnerId) && !empty(githubRepoId)) {
+  parent: id
+  name: 'github-${replace(githubRepo, '/', '-')}-${githubBranch}-ids'
+  dependsOn: [fic] // Azure rejects concurrent writes of credentials on one identity
+  properties: {
+    issuer: 'https://token.actions.githubusercontent.com'
+    subject: 'repo:${split(githubRepo, '/')[0]}@${githubOwnerId}/${split(githubRepo, '/')[1]}@${githubRepoId}:ref:refs/heads/${githubBranch}'
     audiences: ['api://AzureADTokenExchange']
   }
 }
