@@ -61,6 +61,7 @@ the [GitHub CLI](https://cli.github.com/), and Python 3.10+ on your machine.
    gh workflow run backup.yml -R <you>/<your-backup-repo> -f full=true
    ```
    After that it runs every night. Check any run's summary page for the results table.
+   To back up just some repos, add `-f only=my-repo` (several: `-f only="repo-a,repo-b"`).
 
 ## Restore
 

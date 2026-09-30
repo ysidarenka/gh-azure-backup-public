@@ -9,6 +9,9 @@ on:
         description: "Force a complete copy of every repo"
         type: boolean
         default: false
+      only:
+        description: "Only these repos (names separated by commas; blank = all)"
+        required: false
 
 permissions:
   contents: read
@@ -44,4 +47,10 @@ jobs:
           GH_APP_ID: ${{ vars.GH_APP_ID }}
           GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
           GHB_OWNER: ${{ github.repository_owner }}
-        run: python -m ghbackup backup ${{ inputs.full && '--full' || '' }}
+          FULL: ${{ inputs.full }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          args=()
+          [ "$FULL" = "true" ] && args+=(--full)
+          if [ -n "$ONLY" ]; then IFS=', ' read -ra repos <<< "$ONLY"; args+=(--only "${repos[@]}"); fi
+          python -m ghbackup backup "${args[@]}"
